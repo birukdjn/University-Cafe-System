@@ -12,6 +12,7 @@ class StudentAdmin(admin.ModelAdmin):
         'phone',
         'department',
         'year',
+        
     )
     search_fields = ('name', 'student_id', 'email')
     list_filter = ('department', 'year')
@@ -19,7 +20,7 @@ class StudentAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {
-            'fields': ('student_id', 'name', 'email', 'phone')
+            'fields': ('student_id', 'name', 'email', 'phone','image')
         }),
         ('Academic Info', {
             'fields': ('department', 'year')
