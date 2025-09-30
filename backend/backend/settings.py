@@ -16,7 +16,7 @@ DEBUG = False
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-ALLOWED_HOSTS = [os.environ.get('ALLOWED_HOSTS'), 'localhost', '127.0.0.1']
+ALLOWED_HOSTS = [os.environ.get('ALLOWED_HOSTS', 'cafe-api-f9re.onrender.com', 'cafe-system-rt4e.onrender.com').split(",")]
 
 # Application definition
 
@@ -111,6 +111,8 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles') 
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 
 # Tell WhiteNoise to use its compression and cache management
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'

@@ -12,7 +12,7 @@ class Student(models.Model):
     phone = models.CharField(max_length=15)
     department = models.CharField(max_length=100)
     year = models.IntegerField()
-    image = models.ImageField(upload_to='student_images/', blank=True, null=True)
+    image = models.ImageField(upload_to='media/', blank=True, null=True)
     qr_code = models.ImageField(upload_to='qr_codes/', blank=True, null=True)
     date_registered = models.DateTimeField(auto_now_add=True)
     
