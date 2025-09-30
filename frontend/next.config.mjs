@@ -11,11 +11,11 @@ const nextConfig = {
     },
   },
   env: {
-    API_URL: 'https://cafe-api-f9re.onrender.com',
+    NEXT_PUBLIC_API_URL: 'https://cafe-api-f9re.onrender.com',
   },
   images: {
     domains: ['cafe-api-f9re.onrender.com'],
-    unoptimized: true
+    unoptimized: true,
   },
 };
 
