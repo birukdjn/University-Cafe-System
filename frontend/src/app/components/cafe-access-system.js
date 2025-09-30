@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
+import { Html5QrcodeScanner } from "html5-qrcode";
 
 const API_URL = "https://cafe-api-f9re.onrender.com";
 
@@ -12,9 +13,12 @@ export default function CafeAccessSystem() {
   const [studentInfo, setStudentInfo] = useState(null);
   const [isAllowed, setIsAllowed] = useState(null);
   const [scanMode, setScanMode] = useState("auto");
+  const [scanType, setScanType] = useState("camera"); // "camera", "usb", "manual", "nfc", "biometric"
   const [recentMeals, setRecentMeals] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const inputRef = useRef(null);
+  const scannerRef = useRef(null);
 
   useEffect(() => {
     fetchStudents();
@@ -24,15 +28,88 @@ export default function CafeAccessSystem() {
       inputRef.current.focus();
     }
 
+    // Enhanced key handling for various scanner types
     const handleKeyPress = (e) => {
+      // Auto-submit for USB barcode/RFID/magnetic stripe readers
       if (scanMode === "auto" && e.key === 'Enter' && studentId.length > 0) {
         handleManualSubmit();
+      }
+      
+      // PIN code entry support (numeric keypads)
+      if (e.key >= '0' && e.key <= '9' && scanType === "pin") {
+        setStudentId(prev => prev + e.key);
       }
     };
 
     document.addEventListener('keydown', handleKeyPress);
     return () => document.removeEventListener('keydown', handleKeyPress);
-  }, [studentId, scanMode]);
+  }, [studentId, scanMode, scanType]);
+
+  // Camera scanner for QR/Barcode
+  const startCameraScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear();
+    }
+
+    setIsScanning(true);
+    const scanner = new Html5QrcodeScanner(
+      "qr-reader",
+      {
+        qrbox: {
+          width: 250,
+          height: 250,
+        },
+        fps: 10,
+        supportedScanTypes: [
+          Html5QrcodeScanType.SCAN_TYPE_QR_CODE,
+          Html5QrcodeScanType.SCAN_TYPE_BARCODE
+        ],
+      },
+      false
+    );
+
+    scannerRef.current = scanner;
+
+    scanner.render(
+      (decodedText) => {
+        handleScannedId(decodedText);
+        stopCameraScanner();
+      },
+      (error) => {
+        console.log("Scan error:", error);
+      }
+    );
+  };
+
+  const stopCameraScanner = () => {
+    if (scannerRef.current) {
+      scannerRef.current.clear();
+      scannerRef.current = null;
+    }
+    setIsScanning(false);
+  };
+
+  // Simulate NFC/RFID tap (for demonstration)
+  const simulateNFCTap = () => {
+    const nfcStudents = students.filter(s => s.student_id.startsWith('NFC'));
+    if (nfcStudents.length > 0) {
+      const randomStudent = nfcStudents[Math.floor(Math.random() * nfcStudents.length)];
+      handleScannedId(randomStudent.student_id);
+    } else {
+      handleScannedId("NFC2024001"); // Demo NFC ID
+    }
+  };
+
+  // Simulate biometric scan (for demonstration)
+  const simulateBiometricScan = () => {
+    const bioStudents = students.filter(s => s.student_id.startsWith('BIO'));
+    if (bioStudents.length > 0) {
+      const randomStudent = bioStudents[Math.floor(Math.random() * bioStudents.length)];
+      handleScannedId(randomStudent.student_id);
+    } else {
+      handleScannedId("BIO2024001"); // Demo biometric ID
+    }
+  };
 
   const fetchStudents = async () => {
     try {
@@ -61,28 +138,41 @@ export default function CafeAccessSystem() {
     return "closed";
   };
 
-  const getMealTimeStatus = () => {
-    const mealType = getMealType();
-    const now = new Date();
-    const hour = now.getHours();
-    
-    if (mealType === "closed") {
-      const nextMeal = hour < 7 ? "Breakfast (7:00-9:00)" : 
-                      hour < 11 ? "Lunch (11:00-13:00)" : 
-                      "Dinner (17:00-20:00)";
-      return { status: "closed", nextMeal };
-    }
-    
-    return { status: "open", currentMeal: mealType };
-  };
-
   const handleScannedId = async (scannedId) => {
     if (isLoading) return;
     
     setIsLoading(true);
-    const cleanId = scannedId.trim().replace(/\s+/g, '');
     
-    const student = students.find(s => s.student_id === cleanId);
+    // Enhanced ID cleaning for multiple formats
+    let cleanId = scannedId.trim().replace(/\s+/g, '');
+    
+    // Handle different ID formats
+    const idFormats = [
+      cleanId, // Original
+      cleanId.replace(/^STU/i, ''), // Remove STU prefix
+      cleanId.replace(/^NFC/i, ''), // Remove NFC prefix
+      cleanId.replace(/^BIO/i, ''), // Remove BIO prefix
+      cleanId.replace(/^MAG/i, ''), // Remove MAG prefix (magnetic)
+      cleanId.replace(/[^a-zA-Z0-9]/g, ''), // Remove special chars
+    ];
+
+    // Try all format variations
+    let student = null;
+    for (const format of idFormats) {
+      student = students.find(s => s.student_id === format);
+      if (student) break;
+      
+      // Try with prefixes
+      if (!format.startsWith('STU')) {
+        student = students.find(s => s.student_id === `STU${format}`);
+        if (student) break;
+      }
+    }
+
+    // Final fallback: partial match
+    if (!student) {
+      student = students.find(s => s.student_id.includes(cleanId));
+    }
 
     if (!student) {
       setMessage("❌ Student not found");
@@ -123,10 +213,13 @@ export default function CafeAccessSystem() {
       setIsLoading(false);
     }
 
+    // Auto-clear for next scan
     if (scanMode === "auto") {
       setTimeout(() => {
         setStudentId("");
-        inputRef.current?.focus();
+        if (["usb", "manual", "pin"].includes(scanType)) {
+          inputRef.current?.focus();
+        }
       }, 3000);
     }
   };
@@ -147,16 +240,28 @@ export default function CafeAccessSystem() {
     setMessage("");
     setIsAllowed(null);
     setStudentId("");
+    stopCameraScanner();
     inputRef.current?.focus();
   };
 
-  const toggleScanMode = () => {
-    setScanMode(scanMode === "manual" ? "auto" : "manual");
+  const handleScanTypeChange = (type) => {
+    setScanType(type);
     setStudentId("");
-    inputRef.current?.focus();
+    
+    if (type === "camera") {
+      setTimeout(() => {
+        startCameraScanner();
+      }, 100);
+    } else {
+      stopCameraScanner();
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    }
   };
 
-  const mealStatus = getMealTimeStatus();
+  const mealStatus = getMealType();
+  const isMealTimeOpen = mealStatus !== "closed";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-3 sm:p-4 touch-manipulation">
@@ -164,17 +269,17 @@ export default function CafeAccessSystem() {
         {/* Header */}
         <div className="text-center mb-6 sm:mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-2">
-            🎓 Café Access System
+            🎓 Multi-Method Café Access
           </h1>
           <div className="flex flex-col sm:flex-row gap-2 justify-center items-center">
             <div className={`px-3 py-1 rounded-full text-sm font-semibold border ${
-              mealStatus.status === "open" 
+              isMealTimeOpen 
                 ? "bg-green-100 text-green-800 border-green-300" 
                 : "bg-red-100 text-red-800 border-red-300"
             }`}>
-              {mealStatus.status === "open" 
-                ? `🟢 ${mealStatus.currentMeal.toUpperCase()} TIME` 
-                : `🔴 CLOSED - Next: ${mealStatus.nextMeal}`
+              {isMealTimeOpen 
+                ? `🟢 ${mealStatus.toUpperCase()} TIME` 
+                : `🔴 CLOSED - Next: ${mealStatus === "closed" ? "Breakfast (7:00)" : ""}`
               }
             </div>
             <div className="px-3 py-1 bg-blue-100 text-blue-800 border border-blue-300 rounded-full text-sm font-mono">
@@ -190,7 +295,7 @@ export default function CafeAccessSystem() {
             <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-4 sm:p-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-2">
                 <h2 className="text-lg sm:text-xl font-bold text-gray-800">
-                  Student ID Scanner
+                  Universal Access System
                 </h2>
                 <div className="flex gap-2 w-full sm:w-auto">
                   <button
@@ -216,37 +321,228 @@ export default function CafeAccessSystem() {
                 </div>
               </div>
 
-              {/* Scanner Input */}
+              {/* Access Method Selection */}
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Select Access Method:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button
+                    onClick={() => handleScanTypeChange("camera")}
+                    className={`p-2 rounded-lg border transition-all duration-200 touch-manipulation text-xs ${
+                      scanType === "camera" 
+                        ? "bg-purple-600 text-white border-purple-700 shadow-md" 
+                        : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
+                    }`}
+                  >
+                    📷 QR/Barcode
+                  </button>
+                  <button
+                    onClick={() => handleScanTypeChange("usb")}
+                    className={`p-2 rounded-lg border transition-all duration-200 touch-manipulation text-xs ${
+                      scanType === "usb" 
+                        ? "bg-blue-600 text-white border-blue-700 shadow-md" 
+                        : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
+                    }`}
+                  >
+                    🔌 USB Scanner
+                  </button>
+                  <button
+                    onClick={() => handleScanTypeChange("nfc")}
+                    className={`p-2 rounded-lg border transition-all duration-200 touch-manipulation text-xs ${
+                      scanType === "nfc" 
+                        ? "bg-orange-600 text-white border-orange-700 shadow-md" 
+                        : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
+                    }`}
+                  >
+                    📱 NFC/RFID
+                  </button>
+                  <button
+                    onClick={() => handleScanTypeChange("pin")}
+                    className={`p-2 rounded-lg border transition-all duration-200 touch-manipulation text-xs ${
+                      scanType === "pin" 
+                        ? "bg-red-600 text-white border-red-700 shadow-md" 
+                        : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
+                    }`}
+                  >
+                    🔢 PIN Code
+                  </button>
+                </div>
+              </div>
+
+              {/* Scanner Input Areas */}
               <div className="space-y-4">
-                <div className="bg-gray-50 rounded-xl p-4 border-2 border-dashed border-gray-300">
-                  <input
-                    ref={inputRef}
-                    type="text"
-                    value={studentId}
-                    onChange={(e) => setStudentId(e.target.value)}
-                    placeholder={
-                      scanMode === "auto" 
-                        ? "Scan Student ID (auto-submits)" 
-                        : "Enter or scan Student ID then press Submit"
-                    }
-                    className="w-full p-3 sm:p-4 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base sm:text-lg text-center font-mono bg-white touch-manipulation"
-                    disabled={isLoading}
-                  />
-                  
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      onClick={handleManualSubmit}
-                      disabled={isLoading || !studentId.trim()}
-                      className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-indigo-700 touch-manipulation text-sm sm:text-base"
-                    >
-                      {isLoading ? "⏳ Processing..." : "Submit ID"}
-                    </button>
-                    <button
-                      onClick={clearDisplay}
-                      className="px-4 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-gray-600 touch-manipulation text-sm"
-                    >
-                      Clear
-                    </button>
+                {/* Camera Scanner */}
+                {scanType === "camera" && (
+                  <div className="bg-gray-50 rounded-xl p-4 border-2 border-dashed border-purple-300">
+                    <div className="text-center mb-3">
+                      <h3 className="font-semibold text-purple-700 mb-2">📷 QR Code & Barcode Scanner</h3>
+                      <p className="text-xs text-gray-600">
+                        Scan printed cards, digital codes on phones, or loyalty cards
+                      </p>
+                    </div>
+                    <div id="qr-reader" className="w-full"></div>
+                    {!isScanning && (
+                      <button
+                        onClick={startCameraScanner}
+                        className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-purple-700 touch-manipulation mt-3"
+                      >
+                        Start Camera Scanner
+                      </button>
+                    )}
+                    {isScanning && (
+                      <button
+                        onClick={stopCameraScanner}
+                        className="w-full bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-red-700 touch-manipulation mt-3"
+                      >
+                        Stop Camera Scanner
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* USB Scanner */}
+                {scanType === "usb" && (
+                  <div className="bg-gray-50 rounded-xl p-4 border-2 border-dashed border-blue-300">
+                    <div className="text-center mb-3">
+                      <h3 className="font-semibold text-blue-700 mb-2">🔌 USB Scanner Interface</h3>
+                      <p className="text-xs text-gray-600">
+                        Compatible with: Barcode scanners, Magnetic stripe readers, RFID USB readers
+                      </p>
+                    </div>
+                    
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      value={studentId}
+                      onChange={(e) => setStudentId(e.target.value)}
+                      placeholder="Ready for USB scanner input..."
+                      className="w-full p-3 sm:p-4 border-2 border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base sm:text-lg text-center font-mono bg-white touch-manipulation"
+                      disabled={isLoading}
+                    />
+                    
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={handleManualSubmit}
+                        disabled={isLoading || !studentId.trim()}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-blue-700 touch-manipulation text-sm sm:text-base"
+                      >
+                        {isLoading ? "⏳ Processing..." : "Submit"}
+                      </button>
+                      <button
+                        onClick={clearDisplay}
+                        className="px-4 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-gray-600 touch-manipulation text-sm"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* NFC/RFID Simulator */}
+                {scanType === "nfc" && (
+                  <div className="bg-gray-50 rounded-xl p-4 border-2 border-dashed border-orange-300">
+                    <div className="text-center mb-3">
+                      <h3 className="font-semibold text-orange-700 mb-2">📱 NFC/RFID Tap System</h3>
+                      <p className="text-xs text-gray-600">
+                        Tap NFC cards, RFID tags, or smart cards (simulated)
+                      </p>
+                    </div>
+                    
+                    <div className="text-center py-6">
+                      <div className="text-4xl mb-4">📱</div>
+                      <p className="text-sm text-gray-600 mb-4">Ready for NFC/RFID tap</p>
+                      <button
+                        onClick={simulateNFCTap}
+                        disabled={isLoading}
+                        className="bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 border border-orange-700 touch-manipulation"
+                      >
+                        {isLoading ? "⏳ Processing..." : "Simulate NFC Tap"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* PIN Code Entry */}
+                {scanType === "pin" && (
+                  <div className="bg-gray-50 rounded-xl p-4 border-2 border-dashed border-red-300">
+                    <div className="text-center mb-3">
+                      <h3 className="font-semibold text-red-700 mb-2">🔢 PIN Code Entry</h3>
+                      <p className="text-xs text-gray-600">
+                        Enter numeric PIN code (staff/emergency access)
+                      </p>
+                    </div>
+                    
+                    <input
+                      ref={inputRef}
+                      type="password"
+                      value={studentId}
+                      onChange={(e) => setStudentId(e.target.value.replace(/\D/g, ''))}
+                      placeholder="Enter PIN code..."
+                      className="w-full p-3 sm:p-4 border-2 border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 text-base sm:text-lg text-center font-mono bg-white touch-manipulation"
+                      disabled={isLoading}
+                      maxLength={6}
+                    />
+                    
+                    {/* Numeric Keypad Simulation */}
+                    <div className="grid grid-cols-3 gap-2 mt-3">
+                      {[1,2,3,4,5,6,7,8,9].map(num => (
+                        <button
+                          key={num}
+                          onClick={() => setStudentId(prev => prev + num)}
+                          className="p-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 touch-manipulation font-mono"
+                        >
+                          {num}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setStudentId("")}
+                        className="p-3 bg-gray-500 text-white border border-gray-600 rounded-lg hover:bg-gray-600 touch-manipulation"
+                      >
+                        C
+                      </button>
+                      <button
+                        onClick={() => setStudentId(prev => prev + '0')}
+                        className="p-3 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 touch-manipulation font-mono"
+                      >
+                        0
+                      </button>
+                      <button
+                        onClick={() => setStudentId(prev => prev.slice(0, -1))}
+                        className="p-3 bg-red-500 text-white border border-red-600 rounded-lg hover:bg-red-600 touch-manipulation"
+                      >
+                        ⌫
+                      </button>
+                    </div>
+                    
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={handleManualSubmit}
+                        disabled={isLoading || studentId.length < 4}
+                        className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-red-700 touch-manipulation text-sm sm:text-base"
+                      >
+                        {isLoading ? "⏳ Processing..." : "Submit PIN"}
+                      </button>
+                      <button
+                        onClick={clearDisplay}
+                        className="px-4 bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-gray-600 touch-manipulation text-sm"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Method Instructions */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <h4 className="font-semibold text-blue-800 text-sm mb-2">💡 Supported Methods:</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs text-blue-700">
+                    <div>• 📷 QR Codes (digital/printed)</div>
+                    <div>• 📊 Barcodes (loyalty cards)</div>
+                    <div>• 🔌 USB Scanners (barcode/RFID)</div>
+                    <div>• 📱 NFC/RFID Cards & Tags</div>
+                    <div>• 🔢 PIN Codes (staff access)</div>
+                    <div>• 💳 Magnetic Stripe (via USB)</div>
                   </div>
                 </div>
 
@@ -254,30 +550,36 @@ export default function CafeAccessSystem() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <button
                     onClick={clearDisplay}
-                    className="bg-gray-500 hover:bg-gray-600 text-white py-2 rounded-lg text-xs sm:text-sm transition-all duration-200 border border-gray-600 touch-manipulation"
+                    className="bg-gray-500 hover:bg-gray-600 text-white py-2 rounded-lg text-xs transition-all duration-200 border border-gray-600 touch-manipulation"
                   >
                     🗑️ Clear All
                   </button>
                   <button
-                    onClick={toggleScanMode}
-                    className="bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-lg text-xs sm:text-sm transition-all duration-200 border border-purple-600 touch-manipulation"
+                    onClick={() => setScanMode(prev => prev === "auto" ? "manual" : "auto")}
+                    className="bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-lg text-xs transition-all duration-200 border border-purple-600 touch-manipulation"
                   >
-                    {scanMode === "auto" ? "🔁 Manual" : "🔁 Auto"}
+                    {scanMode === "auto" ? "🔁 Manual Mode" : "🔁 Auto Mode"}
                   </button>
                   <button
                     onClick={fetchStudents}
-                    className="bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg text-xs sm:text-sm transition-all duration-200 border border-blue-600 touch-manipulation"
+                    className="bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg text-xs transition-all duration-200 border border-blue-600 touch-manipulation"
                   >
-                    🔄 Refresh
+                    🔄 Refresh Data
                   </button>
                   <button
                     onClick={() => {
-                      setStudentId("TEST123");
-                      if (scanMode === "auto") handleManualSubmit();
+                      const testIds = {
+                        camera: "STU20241001",
+                        usb: "STU20241002", 
+                        nfc: "NFC2024001",
+                        pin: "1234"
+                      };
+                      setStudentId(testIds[scanType] || "STU20241001");
+                      if (scanMode === "auto") setTimeout(handleManualSubmit, 100);
                     }}
-                    className="bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg text-xs sm:text-sm transition-all duration-200 border border-green-600 touch-manipulation"
+                    className="bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg text-xs transition-all duration-200 border border-green-600 touch-manipulation"
                   >
-                    🧪 Test
+                    🧪 Test {scanType.toUpperCase()}
                   </button>
                 </div>
               </div>
@@ -286,7 +588,7 @@ export default function CafeAccessSystem() {
             {/* Recent Meals */}
             <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-4 sm:p-6">
               <h3 className="text-lg font-bold text-gray-800 mb-4">
-                📋 Recent Meal Logs
+                📋 Recent Access Logs
               </h3>
               <div className="space-y-2 max-h-60 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300">
                 {recentMeals.map((meal, index) => (
@@ -302,7 +604,7 @@ export default function CafeAccessSystem() {
                 ))}
                 {recentMeals.length === 0 && (
                   <div className="text-center text-gray-500 py-4 text-sm">
-                    No recent meals logged
+                    No recent access logs
                   </div>
                 )}
               </div>
@@ -349,8 +651,8 @@ export default function CafeAccessSystem() {
                           <span className="text-gray-800">Year {studentInfo.year}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="font-semibold text-gray-600">Meal Type:</span>
-                          <span className="text-gray-800 capitalize">{getMealType()}</span>
+                          <span className="font-semibold text-gray-600">Access Method:</span>
+                          <span className="text-gray-800 capitalize">{scanType}</span>
                         </div>
                       </div>
                     </div>
@@ -370,16 +672,18 @@ export default function CafeAccessSystem() {
                 ) : (
                   <div className="text-center text-gray-500 py-6 sm:py-8">
                     <div className="text-3xl sm:text-4xl mb-3">
-                      {scanMode === "auto" ? "🔍" : "👆"}
+                      {scanType === "camera" ? "📷" : 
+                       scanType === "usb" ? "🔌" : 
+                       scanType === "nfc" ? "📱" : "🔢"}
                     </div>
                     <p className="text-sm sm:text-base font-medium mb-2">
-                      {scanMode === "auto" 
-                        ? "Ready for scanning..." 
-                        : "Enter or scan Student ID"
-                      }
+                      {scanType === "camera" ? "Ready for QR/Barcode scan" :
+                       scanType === "usb" ? "Ready for USB scanner" :
+                       scanType === "nfc" ? "Ready for NFC/RFID tap" :
+                       "Enter PIN code"}
                     </p>
                     <p className="text-xs sm:text-sm text-gray-400">
-                      Student information will appear here
+                      {scanMode === "auto" ? "Auto-process enabled" : "Manual submit required"}
                     </p>
                   </div>
                 )}
@@ -391,7 +695,18 @@ export default function CafeAccessSystem() {
               <h3 className="text-lg font-bold text-gray-800 mb-3">System Status</h3>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Scanner Mode:</span>
+                  <span className="text-sm text-gray-600">Access Method:</span>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold border ${
+                    scanType === "camera" ? "bg-purple-100 text-purple-800 border-purple-300" :
+                    scanType === "usb" ? "bg-blue-100 text-blue-800 border-blue-300" :
+                    scanType === "nfc" ? "bg-orange-100 text-orange-800 border-orange-300" :
+                    "bg-red-100 text-red-800 border-red-300"
+                  }`}>
+                    {scanType.toUpperCase()}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Processing Mode:</span>
                   <span className={`px-2 py-1 rounded text-xs font-semibold border ${
                     scanMode === "auto" ? "bg-green-100 text-green-800 border-green-300" : "bg-blue-100 text-blue-800 border-blue-300"
                   }`}>
