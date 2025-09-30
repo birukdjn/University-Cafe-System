@@ -82,7 +82,7 @@ export default function AnalyticsDashboard() {
           </div>
           <div className="bg-white rounded-xl shadow-lg p-4 text-center">
             <div className="text-2xl sm:text-3xl font-bold text-green-600">{stats.todayMeals}</div>
-            <div className="text-xs sm:text-sm text-gray-600 mt-1">Today's Meals</div>
+            <div className="text-xs sm:text-sm text-gray-600 mt-1">{"Today's Meals"}</div>
           </div>
           <div className="bg-white rounded-xl shadow-lg p-4 text-center">
             <div className="text-2xl sm:text-3xl font-bold text-orange-600">{stats.breakfastCount}</div>
@@ -128,7 +128,7 @@ export default function AnalyticsDashboard() {
 
           {/* Meal Distribution */}
           <div className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">Today's Meal Distribution</h3>
+            <h3 className="text-lg font-bold text-gray-800 mb-4">{"Today's Meal Distribution"}</h3>
             <div className="space-y-4">
               <div>
                 <div className="flex justify-between text-sm mb-1">
