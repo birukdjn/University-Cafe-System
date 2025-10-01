@@ -19,6 +19,7 @@ export default function CafeAccessSystem() {
   const [isScanning, setIsScanning] = useState(false);
   const inputRef = useRef(null);
   const scannerRef = useRef(null);
+  const [lastDecoded, setLastDecoded] = useState(null);
 
   // Run on mount and when scanMode/scanType change (avoid rerunning on every keystroke)
   useEffect(() => {
@@ -51,10 +52,19 @@ export default function CafeAccessSystem() {
   }, [scanMode, scanType]);
 
   // Camera scanner for QR/Barcode
-  const startCameraScanner = () => {
+  const startCameraScanner = async () => {
     try {
       if (scannerRef.current && typeof scannerRef.current.clear === 'function') {
         scannerRef.current.clear();
+      }
+
+      // Ensure students are loaded before scanning so lookups work immediately
+      if (!students || students.length === 0) {
+        try {
+          await fetchStudents();
+        } catch (e) {
+          console.warn('Failed to preload students before scanning:', e);
+        }
       }
 
       setIsScanning(true);
@@ -75,6 +85,9 @@ export default function CafeAccessSystem() {
 
       scanner.render(
         (decodedText) => {
+          // log and expose the exact raw decoded text for debugging
+          console.debug('QR decoded text:', decodedText);
+          setLastDecoded(decodedText);
           handleScannedId(decodedText);
           stopCameraScanner();
         },
@@ -169,33 +182,60 @@ export default function CafeAccessSystem() {
 
   const handleScannedId = async (scannedId) => {
     if (isLoading) return;
-    
+
     setIsLoading(true);
-    
-    // Enhanced ID cleaning for multiple formats
-    let cleanId = scannedId.trim().replace(/\s+/g, '');
-    
-    // Handle different ID formats
-    const idFormats = [
-      cleanId, // Original
-      cleanId.replace(/^STU/i, ''), // Remove STU prefix
-      cleanId.replace(/^NFC/i, ''), // Remove NFC prefix
-      cleanId.replace(/^BIO/i, ''), // Remove BIO prefix
-      cleanId.replace(/^MAG/i, ''), // Remove MAG prefix (magnetic)
-      cleanId.replace(/[^a-zA-Z0-9]/g, ''), // Remove special chars
-    ];
+
+  // Defensive: if scannedId is an object (some libraries may pass an object), stringify
+  let raw = typeof scannedId === 'string' ? scannedId : JSON.stringify(scannedId || '');
+  setLastDecoded(raw);
+
+    // Trim & normalize whitespace
+    raw = raw.trim();
+
+    // If it's a URL (e.g., https://.../id=STU2024...), try to extract last path segment or id param
+    try {
+      if (/^https?:\/\//i.test(raw)) {
+        try {
+          const u = new URL(raw);
+          // try `id` query param first
+          const idParam = u.searchParams.get('id') || u.searchParams.get('student');
+          if (idParam) raw = idParam;
+          else raw = u.pathname.split('/').filter(Boolean).pop() || raw;
+        } catch (e) {
+          // fall back to raw
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // URI-decode if needed
+    try { raw = decodeURIComponent(raw); } catch (e) { /* ignore */ }
+
+    // If JSON was embedded, try parse
+    try {
+      const maybeJson = JSON.parse(raw);
+      if (typeof maybeJson === 'object' && maybeJson !== null) {
+        // try fields that may contain id
+        raw = maybeJson.id || maybeJson.student_id || maybeJson.code || Object.values(maybeJson)[0] || raw;
+      }
+    } catch (e) {
+      // not JSON
+    }
+
+    // Final cleaning: remove whitespace and common separators
+    let cleanId = raw.replace(/\s+/g, '').replace(/[\-\._]/g, '');
 
     // Try all format variations
     let student = null;
     for (const format of idFormats) {
-      student = students.find(s => s.student_id === format);
+      student = students.find(s => s.student_id === format || (s.student_id || '').toUpperCase() === (format || '').toUpperCase());
       if (student) break;
-      
-      // Try with prefixes
-      if (!format.startsWith('STU')) {
-        student = students.find(s => s.student_id === `STU${format}`);
-        if (student) break;
-      }
+
+      // Try with STU prefix and uppercase variants
+      const pref = format.startsWith('STU') ? format : `STU${format}`;
+      student = students.find(s => (s.student_id || '').toUpperCase() === pref.toUpperCase());
+      if (student) break;
     }
 
     // Final fallback: partial match
@@ -222,7 +262,7 @@ export default function CafeAccessSystem() {
     }
 
     try {
-      await axios.post(`${API_URL}/api/meals/`, {
+      const resp = await axios.post(`${API_URL}/api/meals/`, {
         student: student.id,
         meal_type: mealType,
       });
@@ -231,10 +271,12 @@ export default function CafeAccessSystem() {
       setIsAllowed(true);
       fetchRecentMeals();
     } catch (err) {
+      // show meaningful server error if available
+      const serverMsg = err.response?.data?.detail || err.response?.data || err.message;
       if (err.response?.status === 400) {
-        setMessage("❌ Already used meal for this period");
+        setMessage(serverMsg || "❌ Already used meal for this period");
       } else {
-        setMessage("❌ Error processing meal");
+        setMessage(serverMsg || "❌ Error processing meal");
       }
       setStudentInfo(student);
       setIsAllowed(false);
@@ -426,6 +468,12 @@ export default function CafeAccessSystem() {
                       >
                         Stop Camera Scanner
                       </button>
+                    )}
+                    {/* Debug: show latest decoded payload */}
+                    {lastDecoded && (
+                      <div className="mt-3 text-xs text-gray-600 font-mono break-words">
+                        <strong>Decoded:</strong> {String(lastDecoded)}
+                      </div>
                     )}
                   </div>
                 )}
