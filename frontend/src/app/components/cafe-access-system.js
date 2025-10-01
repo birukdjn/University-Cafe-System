@@ -20,21 +20,25 @@ export default function CafeAccessSystem() {
   const inputRef = useRef(null);
   const scannerRef = useRef(null);
 
+  // Run on mount and when scanMode/scanType change (avoid rerunning on every keystroke)
   useEffect(() => {
     fetchStudents();
     fetchRecentMeals();
-    
+
     if (inputRef.current) {
       inputRef.current.focus();
     }
 
     // Enhanced key handling for various scanner types
     const handleKeyPress = (e) => {
+      // Read live input value to avoid stale closure over studentId
+      const currentId = inputRef.current?.value ?? studentId;
+
       // Auto-submit for USB barcode/RFID/magnetic stripe readers
-      if (scanMode === "auto" && e.key === 'Enter' && studentId.length > 0) {
+      if (scanMode === "auto" && e.key === 'Enter' && currentId && currentId.length > 0) {
         handleManualSubmit();
       }
-      
+
       // PIN code entry support (numeric keypads)
       if (e.key >= '0' && e.key <= '9' && scanType === "pin") {
         setStudentId(prev => prev + e.key);
@@ -43,51 +47,76 @@ export default function CafeAccessSystem() {
 
     document.addEventListener('keydown', handleKeyPress);
     return () => document.removeEventListener('keydown', handleKeyPress);
-  }, [studentId, scanMode, scanType]);
+    // Intentionally do NOT include studentId so this doesn't rebind on every input change
+  }, [scanMode, scanType]);
 
   // Camera scanner for QR/Barcode
   const startCameraScanner = () => {
-    if (scannerRef.current) {
-      scannerRef.current.clear();
-    }
-
-    setIsScanning(true);
-    const scanner = new Html5QrcodeScanner(
-      "qr-reader",
-      {
-        qrbox: {
-          width: 250,
-          height: 250,
-        },
-        fps: 10,
-        supportedScanTypes: [
-          Html5QrcodeScanType.SCAN_TYPE_QR_CODE,
-          Html5QrcodeScanType.SCAN_TYPE_BARCODE
-        ],
-      },
-      false
-    );
-
-    scannerRef.current = scanner;
-
-    scanner.render(
-      (decodedText) => {
-        handleScannedId(decodedText);
-        stopCameraScanner();
-      },
-      (error) => {
-        console.log("Scan error:", error);
+    try {
+      if (scannerRef.current && typeof scannerRef.current.clear === 'function') {
+        scannerRef.current.clear();
       }
-    );
+
+      setIsScanning(true);
+      const scanner = new Html5QrcodeScanner(
+        "qr-reader",
+        {
+          qrbox: {
+            width: 250,
+            height: 250,
+          },
+          fps: 10,
+          // allow library defaults which support QR and barcode scanning
+        },
+        false
+      );
+
+      scannerRef.current = scanner;
+
+      scanner.render(
+        (decodedText) => {
+          handleScannedId(decodedText);
+          stopCameraScanner();
+        },
+        (error) => {
+          // non-fatal scanning errors (e.g., no QR in frame)
+          // keep scanning; log only in development
+          // console.debug("Scan error:", error);
+        }
+      );
+    } catch (err) {
+      console.error('Failed to start camera scanner:', err);
+      setIsScanning(false);
+    }
   };
 
   const stopCameraScanner = () => {
-    if (scannerRef.current) {
-      scannerRef.current.clear();
+    try {
+      if (scannerRef.current && typeof scannerRef.current.clear === 'function') {
+        scannerRef.current.clear();
+      }
+    } catch (err) {
+      // ignore clear errors
+      console.warn('Error stopping scanner:', err);
+    } finally {
       scannerRef.current = null;
+      setIsScanning(false);
     }
-    setIsScanning(false);
   };
+
+  // Ensure scanner is stopped on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        if (scannerRef.current && typeof scannerRef.current.clear === 'function') {
+          scannerRef.current.clear();
+        }
+      } catch (err) {
+        // ignore
+      }
+      scannerRef.current = null;
+    };
+  }, []);
 
   // Simulate NFC/RFID tap (for demonstration)
   const simulateNFCTap = () => {
