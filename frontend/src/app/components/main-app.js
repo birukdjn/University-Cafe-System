@@ -13,6 +13,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cafe-api-f9re.onrend
 export default function MainApp() {
   const [currentView, setCurrentView] = useState("access");
   const [isMobile, setIsMobile] = useState(false);
+  const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -23,6 +24,17 @@ export default function MainApp() {
     window.addEventListener('resize', checkMobile);
     
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Initialize auth state on client only to avoid SSR reading localStorage
+  useEffect(() => {
+    import('../../lib/auth').then(({ isAuthenticated }) => {
+      try {
+        setAuthed(!!isAuthenticated());
+      } catch (e) {
+        setAuthed(false);
+      }
+    }).catch(() => setAuthed(false));
   }, []);
 
   const navigation = [
@@ -42,10 +54,10 @@ export default function MainApp() {
           <div className="flex gap-1 sm:gap-2 w-full sm:w-auto justify-center">
             {/* Simple auth UI */}
             <div className="hidden sm:flex items-center gap-2 mr-4">
-              {!isAuthenticated() ? (
+              {!authed ? (
                 <button onClick={() => setCurrentView('login')} className="px-3 py-1 bg-white text-blue-800 rounded">Login</button>
               ) : (
-                <button onClick={() => { clearTokens(); setCurrentView('access'); }} className="px-3 py-1 bg-red-500 text-white rounded">Logout</button>
+                <button onClick={async () => { const mod = await import('../../lib/auth'); mod.clearTokens(); setAuthed(false); setCurrentView('access'); }} className="px-3 py-1 bg-red-500 text-white rounded">Logout</button>
               )}
             </div>
             {navigation.map((item) => (

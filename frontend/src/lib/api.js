@@ -9,6 +9,8 @@ const api = axios.create({
 
 // Attach access token
 api.interceptors.request.use((config) => {
+  // Skip token attachment during SSR
+  if (typeof window === 'undefined') return config;
   const token = getAccessToken();
   if (token) {
     config.headers = config.headers || {};
@@ -36,6 +38,9 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    // If we're on the server, don't attempt refresh logic
+    if (typeof window === 'undefined') return Promise.reject(error);
+
     if (error.response && error.response.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       if (isRefreshing) {
