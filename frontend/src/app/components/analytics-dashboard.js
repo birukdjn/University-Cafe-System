@@ -2,8 +2,22 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
+// Charts
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
 
-const API_URL = "https://cafe-api-f9re.onrender.com";
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cafe-api-f9re.onrender.com";
 
 export default function AnalyticsDashboard() {
   const [stats, setStats] = useState({
@@ -16,40 +30,77 @@ export default function AnalyticsDashboard() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    fetchAnalytics();
-  }, []);
+    useEffect(() => {
+      fetchAnalytics();
+    }, []);
 
-  const fetchAnalytics = async () => {
-    try {
-      const [studentsRes, mealsRes] = await Promise.all([
-        axios.get(`${API_URL}/api/students/`),
-        axios.get(`${API_URL}/api/meals/`)
-      ]);
+    const fetchAnalytics = async () => {
+      try {
+        // Try to fetch sales report from backend; if not available, fallback to students/meals endpoints
+        let salesReport = null;
+        try {
+          const reportRes = await axios.get(`${API_URL}/api/cafe/reports/sales/?period=week`);
+          salesReport = reportRes.data;
+        } catch (e) {
+          // ignore; we'll fallback
+        }
 
-      const students = studentsRes.data;
-      const meals = mealsRes.data;
-      
-      const today = new Date().toDateString();
-      const todayMeals = meals.filter(meal => 
-        new Date(meal.timestamp).toDateString() === today
-      );
+        if (salesReport) {
+          // Build a simplified stats object from report
+          const totalOrders = salesReport.total_orders || 0;
+          const totalRevenue = salesReport.total_revenue || 0;
+          const today = new Date().toDateString();
+          const todaySalesObj = salesReport.daily_sales?.find(d => new Date(d.date).toDateString() === today) || { orders: 0 };
 
-      setStats({
-        totalStudents: students.length,
-        todayMeals: todayMeals.length,
-        breakfastCount: todayMeals.filter(m => m.meal_type === 'breakfast').length,
-        lunchCount: todayMeals.filter(m => m.meal_type === 'lunch').length,
-        dinnerCount: todayMeals.filter(m => m.meal_type === 'dinner').length
-      });
+          setStats(prev => ({
+            ...prev,
+            totalStudents: prev.totalStudents,
+            todayMeals: todaySalesObj.orders || 0,
+          }));
 
-      setRecentActivity(meals.slice(0, 10));
-    } catch (error) {
-      console.error("Error fetching analytics:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+          setRecentActivity(salesReport.daily_sales || []);
+          setChartData({
+            labels: (salesReport.daily_sales || []).map(d => d.date),
+            datasets: [
+              {
+                label: 'Revenue',
+                data: (salesReport.daily_sales || []).map(d => d.revenue),
+                borderColor: 'rgba(59,130,246,1)',
+                backgroundColor: 'rgba(59,130,246,0.2)'
+              }
+            ]
+          });
+        } else {
+          // Fallback: original behaviour
+          const [studentsRes, mealsRes] = await Promise.all([
+            axios.get(`${API_URL}/api/students/`),
+            axios.get(`${API_URL}/api/meals/`)
+          ]);
+
+          const students = studentsRes.data;
+          const meals = mealsRes.data;
+          const today = new Date().toDateString();
+          const todayMeals = meals.filter(meal => new Date(meal.timestamp).toDateString() === today);
+
+          setStats({
+            totalStudents: students.length,
+            todayMeals: todayMeals.length,
+            breakfastCount: todayMeals.filter(m => m.meal_type === 'breakfast').length,
+            lunchCount: todayMeals.filter(m => m.meal_type === 'lunch').length,
+            dinnerCount: todayMeals.filter(m => m.meal_type === 'dinner').length
+          });
+
+          setRecentActivity(meals.slice(0, 10));
+        }
+      } catch (error) {
+        console.error("Error fetching analytics:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    // Chart data state
+    const [chartData, setChartData] = useState({ labels: [], datasets: [] });
 
   if (isLoading) {
     return (
@@ -167,7 +218,24 @@ export default function AnalyticsDashboard() {
                 </div>
               </div>
             </div>
-            
+            {/* Charts */}
+            <div className="mt-6">
+              <h4 className="font-semibold text-gray-800 mb-2">Revenue (last 7 days)</h4>
+              {chartData.labels && chartData.labels.length > 0 ? (
+                <div className="w-full h-64">
+                  <Line
+                    data={chartData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: { legend: { position: 'top' } },
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">No revenue chart data available.</div>
+              )}
+            </div>
             <div className="mt-6 p-4 bg-blue-50 rounded-lg">
               <h4 className="font-semibold text-blue-800 mb-2">System Info</h4>
               <div className="text-sm text-blue-700 space-y-1">

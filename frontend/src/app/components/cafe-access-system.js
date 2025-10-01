@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { Html5QrcodeScanner } from "html5-qrcode";
 
-const API_URL = "https://cafe-api-f9re.onrender.com";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cafe-api-f9re.onrender.com";
 
 export default function CafeAccessSystem() {
   const [students, setStudents] = useState([]);

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
 
-const API_URL = "https://cafe-api-f9re.onrender.com";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cafe-api-f9re.onrender.com";
 
 export default function RegistrationForm() {
   const [formData, setFormData] = useState({

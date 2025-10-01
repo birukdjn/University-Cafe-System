@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 import qrcode
 from io import BytesIO
 from django.core.files import File
@@ -38,7 +39,8 @@ class Student(models.Model):
             
             buffer = BytesIO()
             canvas.save(buffer, 'PNG')
-            
+            # Ensure buffer is rewound before saving
+            buffer.seek(0)
             self.qr_code.save(
                 f'qr_code_{self.student_id}.png',
                 File(buffer),

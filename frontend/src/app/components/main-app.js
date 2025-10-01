@@ -4,6 +4,11 @@ import { useState, useEffect } from "react";
 import RegistrationForm from "./registration-form";
 import CafeAccessSystem from "./cafe-access-system";
 import AnalyticsDashboard from "./analytics-dashboard";
+import axios from 'axios';
+import { setTokens, isAuthenticated, clearTokens } from '../../lib/auth';
+import LoginForm from './login-form';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://cafe-api-f9re.onrender.com";
 
 export default function MainApp() {
   const [currentView, setCurrentView] = useState("access");
@@ -35,6 +40,14 @@ export default function MainApp() {
             🎓 University Café System
           </h1>
           <div className="flex gap-1 sm:gap-2 w-full sm:w-auto justify-center">
+            {/* Simple auth UI */}
+            <div className="hidden sm:flex items-center gap-2 mr-4">
+              {!isAuthenticated() ? (
+                <button onClick={() => setCurrentView('login')} className="px-3 py-1 bg-white text-blue-800 rounded">Login</button>
+              ) : (
+                <button onClick={() => { clearTokens(); setCurrentView('access'); }} className="px-3 py-1 bg-red-500 text-white rounded">Logout</button>
+              )}
+            </div>
             {navigation.map((item) => (
               <button
                 key={item.id}
@@ -57,6 +70,12 @@ export default function MainApp() {
         {currentView === "access" && <CafeAccessSystem />}
         {currentView === "registration" && <RegistrationForm />}
         {currentView === "analytics" && <AnalyticsDashboard />}
+        {currentView === 'login' && (
+          <div className="max-w-md mx-auto mt-8 p-6 bg-white rounded-lg shadow">
+            <h3 className="text-lg font-semibold mb-4">Login</h3>
+            <LoginForm onLogin={() => setCurrentView('access')} />
+          </div>
+        )}
       </main>
 
       {/* Footer */}
