@@ -20,6 +20,7 @@ export default function CafeAccessSystem() {
   const inputRef = useRef(null);
   const scannerRef = useRef(null);
   const [lastDecoded, setLastDecoded] = useState(null);
+  const [cameraPermission, setCameraPermission] = useState('unknown'); // 'unknown'|'granted'|'prompt'|'denied'
 
   // Run on mount and when scanMode/scanType change (avoid rerunning on every keystroke)
   useEffect(() => {
@@ -130,6 +131,67 @@ export default function CafeAccessSystem() {
       scannerRef.current = null;
     };
   }, []);
+
+  // Check camera permission status (if supported)
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
+      let mounted = true;
+      (async () => {
+        try {
+          const p = await navigator.permissions.query({ name: 'camera' });
+          if (!mounted) return;
+          setCameraPermission(p.state);
+          p.onchange = () => setCameraPermission(p.state);
+        } catch (e) {
+          // some browsers don't support 'camera' permission name
+          try {
+            const p2 = await navigator.permissions.query({ name: 'microphone' });
+            if (!mounted) return;
+            setCameraPermission(p2.state);
+            p2.onchange = () => setCameraPermission(p2.state);
+          } catch (err) {
+            setCameraPermission('unknown');
+          }
+        }
+      })();
+      return () => {
+        mounted = false;
+      };
+    }
+  }, []);
+
+  const requestCameraPermission = async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraPermission('unknown');
+      return false;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Immediately stop tracks to release the camera
+      stream.getTracks().forEach((t) => t.stop());
+      setCameraPermission('granted');
+      return true;
+    } catch (err) {
+      // NotAllowedError = denied, OverconstrainedError, NotFoundError, etc.
+      setCameraPermission('denied');
+      console.warn('Camera permission request failed:', err);
+      return false;
+    }
+  };
+
+  const ensureCameraAndStart = async () => {
+    try {
+      if (cameraPermission === 'granted') {
+        await startCameraScanner();
+        return;
+      }
+      // Try to request permission which will prompt user
+      const ok = await requestCameraPermission();
+      if (ok) await startCameraScanner();
+    } catch (e) {
+      console.error('Failed to ensure camera and start scanner:', e);
+    }
+  };
 
   // Simulate NFC/RFID tap (for demonstration)
   const simulateNFCTap = () => {
@@ -455,7 +517,7 @@ export default function CafeAccessSystem() {
                     <div id="qr-reader" className="w-full"></div>
                     {!isScanning && (
                       <button
-                        onClick={startCameraScanner}
+                        onClick={ensureCameraAndStart}
                         className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg transition-all duration-200 border border-purple-700 touch-manipulation mt-3"
                       >
                         Start Camera Scanner
@@ -703,10 +765,20 @@ export default function CafeAccessSystem() {
               }`}>
                 {studentInfo ? (
                   <div className="text-center">
-                    <div className={`text-4xl sm:text-6xl mb-3 sm:mb-4 ${
-                      isAllowed ? 'text-green-500' : 'text-red-500'
-                    }`}>
-                      {isAllowed ? '✅' : '❌'}
+                    <div className="flex justify-center mb-3">
+                      {(() => {
+                        const imgUrl = studentInfo.image || studentInfo.photo || studentInfo.student_image || studentInfo.avatar || studentInfo.picture || null;
+                        if (imgUrl) {
+                          return (
+                            <img src={imgUrl} alt="student" className="w-24 h-24 rounded-full object-cover border-2 border-gray-200 shadow-sm" />
+                          );
+                        }
+                        return (
+                          <div className={`text-4xl sm:text-6xl ${isAllowed ? 'text-green-500' : 'text-red-500'}`}>
+                            {isAllowed ? '✅' : '❌'}
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     <div className="space-y-3 mb-4">
@@ -734,9 +806,7 @@ export default function CafeAccessSystem() {
                       </div>
                     </div>
 
-                    <div className={`text-lg sm:text-xl font-bold mb-3 ${
-                      isAllowed ? 'text-green-600' : 'text-red-600'
-                    }`}>
+                    <div className={`text-lg sm:text-xl font-bold mb-3 ${isAllowed ? 'text-green-600' : 'text-red-600'}`}>
                       {isAllowed ? 'ACCESS GRANTED' : 'ACCESS DENIED'}
                     </div>
 
@@ -789,6 +859,21 @@ export default function CafeAccessSystem() {
                   }`}>
                     {scanMode === "auto" ? "Auto" : "Manual"}
                   </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Camera Permission:</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 rounded text-xs font-semibold border ${
+                      cameraPermission === 'granted' ? 'bg-green-100 text-green-800 border-green-300' :
+                      cameraPermission === 'denied' ? 'bg-red-100 text-red-800 border-red-300' :
+                      'bg-yellow-100 text-yellow-800 border-yellow-300'
+                    }`}>
+                      {cameraPermission}
+                    </span>
+                    {cameraPermission !== 'granted' && (
+                      <button onClick={requestCameraPermission} className="text-xs px-2 py-1 bg-blue-500 text-white rounded">Request Camera</button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-600">Current Time:</span>
