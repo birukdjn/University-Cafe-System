@@ -3,6 +3,7 @@
 set -o errexit
 
 # Install Python dependencies from requirements.txt
+python -m pip install --upgrade pip setuptools wheel
 pip install -r requirements.txt
 
 # Collect static files (CSS/JS)
