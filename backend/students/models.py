@@ -34,8 +34,29 @@ class Student(models.Model):
             qr.make(fit=True)
             
             qr_img = qr.make_image(fill_color="black", back_color="white")
-            canvas = Image.new('RGB', (400, 400), 'white')
-            canvas.paste(qr_img)
+            # Ensure we have a PIL Image in RGB mode and size it to fit the canvas
+            try:
+                qr_pil = qr_img.convert('RGB')
+            except Exception:
+                # qr_img may already be a PIL image but not support convert
+                qr_pil = Image.new('RGB', qr_img.size)
+                qr_pil.paste(qr_img)
+
+            canvas_size = (400, 400)
+            canvas = Image.new('RGB', canvas_size, 'white')
+
+            # Resize QR if it's larger than the canvas minus margin
+            max_inner = 360
+            w, h = qr_pil.size
+            if w > max_inner or h > max_inner:
+                ratio = min(max_inner / w, max_inner / h)
+                new_size = (max(1, int(w * ratio)), max(1, int(h * ratio)))
+                qr_pil = qr_pil.resize(new_size, Image.LANCZOS)
+                w, h = qr_pil.size
+
+            # Center the QR on the canvas using a 2-tuple box
+            offset = ((canvas_size[0] - w) // 2, (canvas_size[1] - h) // 2)
+            canvas.paste(qr_pil, offset)
             
             buffer = BytesIO()
             canvas.save(buffer, 'PNG')
