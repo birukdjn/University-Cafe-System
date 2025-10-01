@@ -16,6 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
 from rest_framework import routers
 from students.views import StudentViewSet, MealLogViewSet
 from django.conf.urls.static import static
@@ -27,6 +28,8 @@ router.register(r'students', StudentViewSet)
 router.register(r'meals', MealLogViewSet)
 
 urlpatterns = [
+    # Root: redirect to API docs so the site root is not a 404
+    path('', RedirectView.as_view(url='/api/docs/swagger/', permanent=False)),
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
